@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alethic-ism-state-sync-store-deployment
+  namespace: alethic
+spec:
+  replicas: 1 
+  selector:
+    matchLabels:
+      app: alethic-ism-state-sync-store
+  template:
+    metadata:
+      labels:
+        app: alethic-ism-state-sync-store
+    spec:
+      volumes:
+        - name: alethic-ism-state-sync-store-secret-config-volume
+          secret:
+            secretName: alethic-ism-state-sync-store-secret
+            items:
+              - key: .routing.yaml
+                path: .routing.yaml
+      containers:
+      - name: alethic-ism-state-sync-store
+        image: <IMAGE>
+        imagePullPolicy: Always
+        volumeMounts:
+          - name: alethic-ism-state-sync-store-secret-config-volume
+            mountPath: /app/repo/.routing.yaml
+            subPath: .routing.yaml
+            readOnly: true
+        env:
+          # Consumer Configuration for Pulsar
+          - name: MSG_URL
+            valueFrom:
+              secretKeyRef:
+                name: alethic-ism-state-sync-store-secret
+                key: MSG_URL
+
+          - name: MSG_TOPIC
+            valueFrom:
+              secretKeyRef:
+                name: alethic-ism-state-sync-store-secret
+                key: MSG_TOPIC
+
+          - name: MSG_MANAGE_TOPIC
+            valueFrom:
+              secretKeyRef:
+                name: alethic-ism-state-sync-store-secret
+                key: MSG_MANAGE_TOPIC
+
+          - name: MSG_TOPIC_SUBSCRIPTION
+            valueFrom:
+              secretKeyRef:
+                name: alethic-ism-state-sync-store-secret
+                key: MSG_TOPIC_SUBSCRIPTION
+
+          # Database connection details
+          - name: DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: alethic-ism-state-sync-store-secret
+                key: DATABASE_URL
+
+      imagePullSecrets:
+      - name: regcred
