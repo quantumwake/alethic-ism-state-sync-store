@@ -1,4 +1,4 @@
-name: alethic-ism-state-router
+name: alethic-ism-state-sync-store
 channels:
   - file:///app/conda/env/local_channel
   - pytorch

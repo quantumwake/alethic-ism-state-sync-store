@@ -1,4 +1,4 @@
-name: alethic-ism-state-router
+name: alethic-ism-state-sync-store
 channels:
   - pytorch
   - conda-forge
