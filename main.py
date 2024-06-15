@@ -20,7 +20,7 @@ dotenv.load_dotenv()
 logging.info('starting up pulsar consumer for state sync store')
 
 # pulsar/kafka related
-MSG_URL = os.environ.get("MSG__URL", "pulsar://localhost:6650")
+MSG_URL = os.environ.get("MSG_URL", "pulsar://localhost:6650")
 MSG_TOPIC = os.environ.get("MSG_TOPIC", "ism_state_sync_store")
 MSG_TOPIC_SUBSCRIPTION = os.environ.get("MSG_TOPIC_SUBSCRIPTION", "ism_state_sync_store_subscription")
 
