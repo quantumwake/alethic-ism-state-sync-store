@@ -6,6 +6,12 @@ messageConfig:
       service_url: pulsar://localhost:6650
 
     topic_routes:
+      - selector: processor/monitor
+        topic: ism_monitor
+        manage_topic: ism_monitor_monitor
+        subscription: ism_monitor_subscription
+        service_url: pulsar://localhost:6650
+
       - selector: state/router
         topic: ism_state_router
         subscription: ism_state_router_subscription
