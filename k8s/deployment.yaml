@@ -30,7 +30,7 @@ spec:
             subPath: .routing.yaml
             readOnly: true
         env:
-          # Consumer Configuration for Pulsar
+          # Consumer Configuration
           - name: ROUTING_FILE
             valueFrom:
               secretKeyRef:
