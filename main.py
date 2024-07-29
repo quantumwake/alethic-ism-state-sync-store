@@ -128,6 +128,13 @@ class MessagingStateSyncConsumer(BaseMessageConsumer, MonitoredProcessorState):
 
     async def route_query_states(self, state: State, query_states: List[Dict]):
 
+    # TODO this code apparently routes data to the next hop, however, this logic is also happening using the
+    #  State Propagation Provider; in the processor directly. It might be required to have either a separate
+    #  router or simple send it to the state router and let the state router make the deicision as to whether
+    #  forward route this message. Although it does kind of make sense in the state sync, though the routing
+    #  and data persistence should not be dependant. ARGGGG.. I think fine in the processing consumer, such that
+    #  it can be the point where it can go further or not.
+
         state_id = state.id
         if not state.config.flag_auto_route_output_state:
             logging.debug(f'flag auto route query states forward is disabled, for state id {state_id}')
@@ -145,7 +152,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer, MonitoredProcessorState):
             return
 
         # iterate and send query states to next hops
-        [state_router_route.send_message(json.dumps({
+        [await state_router_route.publish(json.dumps({
             "route_id": forward_route.id,
             "type": "query_state_route",
             "input_state_id": state_id,
@@ -159,5 +166,9 @@ if __name__ == '__main__':
         monitor_route=monitor_route
     )
 
+    # TODO the bottleneck is going to be the state persistence, we need a mechanism to distribute the
+    #  persistence of each state in complete consumer isolation or build the state storage machine implementation
+    #  such that it can handle asynchronous persistence to the same state.
+
     consumer.setup_shutdown_signal()
-    asyncio.get_event_loop().run_until_complete(consumer.start_consumer())
+    asyncio.get_event_loop().run_until_complete(consumer.start_consumer(consumer_no=1))
