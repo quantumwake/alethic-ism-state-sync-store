@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime
 from typing import Optional, Dict, List
 
 from core.base_model import ProcessorStateDirection
@@ -26,6 +27,11 @@ storage = PostgresDatabaseStorage(
 # define the consumer subsystem to use, in this case we are using pulsar but we can also use kafka
 message_provider = NATSMessageProvider()
 
+class StateCacheItem:
+
+    def __init__(self, state: State):
+        self.state = state
+        self.last_update = datetime.utcnow()
 
 # setup the state data synchronization consumer class
 class MessagingStateSyncConsumer(BaseMessageConsumer, MonitoredProcessorState):
@@ -33,6 +39,8 @@ class MessagingStateSyncConsumer(BaseMessageConsumer, MonitoredProcessorState):
     def __init__(self, route: BaseRoute, monitor_route: BaseRoute = None, **kwargs):
         BaseMessageConsumer.__init__(self, route)
         MonitoredProcessorState.__init__(self, monitor_route, **kwargs)
+
+        self.state_cache: Dict[str, StateCacheItem] = {}
 
     async def pre_execute(self, consumer_message_mapping: dict, **kwargs):
         pass    # do not send any data synchronization updates, for now
@@ -42,7 +50,24 @@ class MessagingStateSyncConsumer(BaseMessageConsumer, MonitoredProcessorState):
 
     # # @memoize
     async def fetch_state(self, state_id: str) -> Optional[State]:
-        state = storage.load_state(state_id=state_id)
+
+        state = None    # start with state is not cached yet
+
+        if state_id in self.state_cache:    # if the state is already cached
+            state_cache_item = self.state_cache[state_id]   # fetch the cached item
+
+            # calculate the time since last updating the cache element
+            elapsed_last_access = datetime.utcnow() - state_cache_item.last_update
+            if elapsed_last_access < 30000:     # if not 30 seconds has elapsed, then use the cache item
+                state = state_cache_item.state
+                state_cache_item.last_update = datetime.utcnow()    # update the cache state
+
+        # otherwise the state is null and we need to reload it and cache it again
+        if not state:
+            state = storage.load_state(state_id=state_id)
+            self.state_cache[state_id] = StateCacheItem(state)
+
+        # return the final state cached or just renewed/loaded
         return state
 
     async def execute(self, message: dict):
@@ -96,18 +121,18 @@ class MessagingStateSyncConsumer(BaseMessageConsumer, MonitoredProcessorState):
 
         # fetch the state object from the cache or backend
         state = await self.fetch_state(state_id=processor_state.state_id)
-        query_states = message['query_states']
+        query_state = message['query_state']    # likely individual state entries (a list)
         processor = storage.fetch_processor(processor_id=processor_state.processor_id)
         provider = storage.fetch_processor_provider(id=processor.provider_id)
 
-        state = await self.save_state(state=state, query_states=query_states, scope_variable_mapping={
+        state = await self.save_state(state=state, query_states=query_state, scope_variable_mapping={
             "route_id": route_id,
             "provider": provider,
             "processor": processor,
             "processor_state": processor_state
         })
 
-        return query_states, state
+        return query_state, state
 
     async def save_state(self, state: State, query_states: [], scope_variable_mapping: dict = {}):
         for query_state_entry in query_states:
