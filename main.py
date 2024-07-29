@@ -58,7 +58,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer, MonitoredProcessorState):
 
             # calculate the time since last updating the cache element
             elapsed_last_access = datetime.utcnow() - state_cache_item.last_update
-            if elapsed_last_access < 30000:     # if not 30 seconds has elapsed, then use the cache item
+            if elapsed_last_access.seconds < 30:     # if not 30 seconds has elapsed, then use the cache item
                 state = state_cache_item.state
                 state_cache_item.last_update = datetime.utcnow()    # update the cache state
 
