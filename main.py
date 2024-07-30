@@ -34,12 +34,10 @@ class StateCacheItem:
         self.last_update = datetime.utcnow()
 
 # setup the state data synchronization consumer class
-class MessagingStateSyncConsumer(BaseMessageConsumer, MonitoredProcessorState):
+class MessagingStateSyncConsumer(BaseMessageConsumer):
 
     def __init__(self, route: BaseRoute, monitor_route: BaseRoute = None, **kwargs):
-        BaseMessageConsumer.__init__(self, route)
-        MonitoredProcessorState.__init__(self, monitor_route, **kwargs)
-
+        super().__init__(route=route, monitor_route=monitor_route)
         self.state_cache: Dict[str, StateCacheItem] = {}
 
     async def pre_execute(self, consumer_message_mapping: dict, **kwargs):
@@ -95,12 +93,12 @@ class MessagingStateSyncConsumer(BaseMessageConsumer, MonitoredProcessorState):
         state = await self.fetch_state(state_id=state_id)
 
         # persist the query state list
-        query_states = message['query_states']
-        state = await self.save_state(state=state, query_states=query_states, scope_variable_mapping={
+        query_state = message['query_state']
+        state = await self.save_state(state=state, query_states=query_state, scope_variable_mapping={
             "state_id": state_id
         })
 
-        return query_states, state
+        return query_state, state
 
     async def execute_route(self, message: dict):
 
@@ -177,11 +175,12 @@ class MessagingStateSyncConsumer(BaseMessageConsumer, MonitoredProcessorState):
             return
 
         # iterate and send query states to next hops
-        [await state_router_route.publish(json.dumps({
-            "route_id": forward_route.id,
-            "type": "query_state_route",
-            "input_state_id": state_id,
-            "query_state": query_states}
+        [await state_router_route.publish(json.dumps(
+            {
+                "type": "query_state_entry",
+                "route_id": forward_route.id,
+                "query_state": query_states
+            }
         )) for forward_route in forward_routes]
 
 
