@@ -7,7 +7,6 @@ from core.base_model import ProcessorStateDirection
 from core.messaging.base_message_provider import BaseMessageConsumer
 from core.messaging.base_message_route_model import BaseRoute
 from core.messaging.nats_message_provider import NATSMessageProvider
-from core.monitored_processor_state import MonitoredProcessorState
 from core.processor_state import State
 from db.processor_state_db_storage import PostgresDatabaseStorage
 
@@ -17,6 +16,7 @@ from message_router import monitor_route, state_sync_route, state_router_route
 
 # flag that determines whether to shut down the consumers
 RUNNING = True
+# r = redis.Redis(host='localhost', port=6379, db=0)
 
 # catch-all storage class configuration
 storage = PostgresDatabaseStorage(
@@ -68,12 +68,39 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         # return the final state cached or just renewed/loaded
         return state
 
+    def remove_complex_values(self, query_state):
+        if not query_state:
+            return query_state
+
+        def pop(e):
+            history = e['__history__'] if '__history__' in e else None
+            if history:
+                e.pop('__history__')
+
+        if isinstance(query_state, list):
+            for entry in query_state:
+                pop(e=entry)
+        else:
+            pop(e=query_state)
+
+        return query_state
+
     async def execute(self, message: dict):
         if 'type' not in message:
             raise ValueError(f'unable to identify state type, must be one of: '
                              f'[query_state_route, query_state_direct')
 
+        query_state = message['query_state'] if 'query_state' in message else None
+
+        if not query_state:
+            raise ValueError(f'no query state information found in message: {message}')
+
+        # update the query state information
+        # message['query_state'] = self.remove_complex_values(query_state=query_state)
+        # message['input_query_state'] = self.remove_complex_values(query_state=message['input_query_state'])
+
         message_type = message['type']
+
         if message_type == 'query_state_direct':
             query_states, state = await self.execute_direct(message=message)
         elif message_type == 'query_state_route':
@@ -149,17 +176,20 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
 
         return state
 
+
     async def route_query_states(self, state: State, query_states: List[Dict]):
 
-    # TODO this code apparently routes data to the next hop, however, this logic is also happening using the
-    #  State Propagation Provider; in the processor directly. It might be required to have either a separate
-    #  router or simple send it to the state router and let the state router make the deicision as to whether
-    #  forward route this message. Although it does kind of make sense in the state sync, though the routing
-    #  and data persistence should not be dependant. ARGGGG.. I think fine in the processing consumer, such that
-    #  it can be the point where it can go further or not.
+        # TODO this code apparently routes data to the next hop, however, this logic is also happening using the
+        #  State Propagation Provider; in the processor directly. It might be required to have either a separate
+        #  router or simple send it to the state router and let the state router make the deicision as to whether
+        #  forward route this message. Although it does kind of make sense in the state sync, though the routing
+        #  and data persistence should not be dependant. ARGGGG.. I think fine in the processing consumer, such that
+        #  it can be the point where it can go further or not.
+
+        # TODO already split this out to a different flag >> above comment might not be relevant.
 
         state_id = state.id
-        if not state.config.flag_auto_route_output_state:
+        if not state.config.flag_auto_route_output_state_after_save:
             logging.debug(f'flag auto route query states forward is disabled, for state id {state_id}')
             return
 
