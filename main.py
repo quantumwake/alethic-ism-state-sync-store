@@ -27,11 +27,13 @@ storage = PostgresDatabaseStorage(
 # define the consumer subsystem to use, in this case we are using pulsar but we can also use kafka
 message_provider = NATSMessageProvider()
 
+
 class StateCacheItem:
 
     def __init__(self, state: State):
         self.state = state
         self.last_update = datetime.utcnow()
+
 
 # setup the state data synchronization consumer class
 class MessagingStateSyncConsumer(BaseMessageConsumer):
