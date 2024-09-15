@@ -122,12 +122,12 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         state = await self.fetch_state(state_id=state_id)
 
         # persist the query state list
-        query_state = message['query_state']
-        state = await self.save_state(state=state, query_states=query_state, scope_variable_mapping={
+        query_states = message['query_state']
+        query_states, state = await self.save_state(state=state, query_states=query_states, scope_variable_mapping={
             "state_id": state_id
         })
 
-        return query_state, state
+        return query_states, state
 
     async def execute_route(self, message: dict):
 
@@ -148,22 +148,22 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
 
         # fetch the state object from the cache or backend
         state = await self.fetch_state(state_id=processor_state.state_id)
-        query_state = message['query_state']    # likely individual state entries (a list)
+        query_states = message['query_state']    # likely individual state entries (a list)
         processor = storage.fetch_processor(processor_id=processor_state.processor_id)
         provider = storage.fetch_processor_provider(id=processor.provider_id)
 
-        state = await self.save_state(state=state, query_states=query_state, scope_variable_mapping={
+        query_states, state = await self.save_state(state=state, query_states=query_states, scope_variable_mapping={
             "route_id": route_id,
             "provider": provider,
             "processor": processor,
             "processor_state": processor_state
         })
 
-        return query_state, state
+        return query_states, state
 
     async def save_state(self, state: State, query_states: [], scope_variable_mapping: dict = {}):
         for query_state_entry in query_states:
-            state.apply_query_state(
+            query_states = state.apply_query_state(
                 query_state=query_state_entry,
                 scope_variable_mappings=scope_variable_mapping
             )
@@ -176,7 +176,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         # we explicitly update the state count TODO need to figure this out with cache
         state = storage.update_state_count(state=state)
 
-        return state
+        return query_states, state
 
 
     async def route_query_states(self, state: State, query_states: List[Dict]):
