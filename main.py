@@ -129,7 +129,10 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         state_id = message['state_id']
 
         # fetch the state object from the cache or backend
-        state = await self.fetch_state(state_id=state_id)
+        # state = await self.fetch_state(state_id=state_id)
+        # TODO temporary fix until we get this state synchronizer shit sorted out
+        # TODO definitely do not want to be doing this outside the other path of persistence (but since the other path uses the route id and not the state id, well you get the point.....)
+        state = storage.load_state(state_id=state_id, load_data=True)
 
         # persist the query state list
         query_states = message['query_state']
