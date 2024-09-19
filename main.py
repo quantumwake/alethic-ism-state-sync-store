@@ -150,10 +150,19 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         # TODO final the state should probably not use a complex data structure but be as simple as dumping a json row (aka finalized query state rather than persisting each column and value per row, although this is kind of like a key which we can use a distributed hash for I suppose? but not as efficient as I would expect)
         # TODO to say the least, this whole fucking thing around `synchronizing` state persistence needs to be looked at BADLY and quickly, as it won't scale
 
+        load = True
         # lets check the cache first
         if route_id in self.route_state_cache:
             cache_item = self.route_state_cache[route_id]
-        else:
+
+            # calculate the time since last updating the cache element
+            elapsed_last_access = datetime.utcnow() - cache_item.last_update
+            if elapsed_last_access.seconds < 30:  # if not 30 seconds has elapsed, then use the cache item
+                self.route_state_cache.pop(route_id)
+            else:
+                load = False
+
+        if load:
             # fetch processor state route information in order to know where we are persisting the data
             processor_state = storage.fetch_processor_state_route(route_id=route_id)
 
