@@ -157,8 +157,9 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
 
             # calculate the time since last updating the cache element
             elapsed_last_access = datetime.utcnow() - cache_item.last_update
-            if elapsed_last_access.total_seconds() < 30:  # if not 30 seconds has elapsed, then use the cache item
+            if elapsed_last_access.total_seconds() >= 10:  # if not 30 seconds has elapsed, then use the cache item
                 self.route_state_cache.pop(route_id)
+                cache_item = None
             else:
                 load = False
 
