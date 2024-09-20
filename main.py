@@ -208,6 +208,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
                 "processor_state": cache_item.processor_state
             }
         )
+        cache_item.state = state
 
         return query_states, state
 
