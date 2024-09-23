@@ -278,4 +278,4 @@ if __name__ == '__main__':
     #  such that it can handle asynchronous persistence to the same state.
 
     consumer.setup_shutdown_signal()
-    asyncio.get_event_loop().run_until_complete(consumer.start_consumer(consumer_no=1))
+    asyncio.get_event_loop().run_until_complete(consumer.start_consumer())
