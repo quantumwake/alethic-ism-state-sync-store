@@ -216,7 +216,10 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         for query_state_entry in query_states:
             query_states = state.apply_query_state(
                 query_state=query_state_entry,
-                scope_variable_mappings=scope_variable_mapping
+                scope_variable_mappings={
+                    **scope_variable_mapping,
+                    "data": query_state_entry,
+                }
             )
 
         logging.info(f'persisting state: {state.id} to storage {state.config.storage_class} with count: {state.count}')
