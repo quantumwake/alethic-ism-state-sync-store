@@ -3,12 +3,12 @@ import json
 from datetime import datetime
 from typing import Optional, Dict, List
 
-from core.base_model import ProcessorStateDirection, Processor, ProcessorProvider, ProcessorState
-from core.messaging.base_message_provider import BaseMessageConsumer
-from core.messaging.base_message_route_model import BaseRoute
-from core.messaging.nats_message_provider import NATSMessageProvider
-from core.processor_state import State
-from db.processor_state_db_storage import PostgresDatabaseStorage
+from ismcore.messaging.base_message_provider import BaseMessageConsumer
+from ismcore.messaging.base_message_route_model import BaseRoute
+from ismcore.messaging.nats_message_provider import NATSMessageProvider
+from ismcore.model.base_model import Processor, ProcessorProvider, ProcessorState, ProcessorStateDirection
+from ismcore.model.processor_state import State
+from ismdb.postgres_storage_class import PostgresDatabaseStorage
 
 from environment import DATABASE_URL, MSG_URL, MSG_TOPIC, MSG_TOPIC_SUBSCRIPTION, MSG_MANAGE_TOPIC
 from logger import logging
@@ -43,12 +43,11 @@ class StateCacheItem:
         self.last_update = datetime.utcnow()
 
 
-# setup the state data synchronization consumer class
+# set up state data synchronization consumer class
 class MessagingStateSyncConsumer(BaseMessageConsumer):
 
     def __init__(self, route: BaseRoute, monitor_route: BaseRoute = None, **kwargs):
         super().__init__(route=route, monitor_route=monitor_route)
-        # self.state_cache: Dict[str, StateCacheItem] = {}
         self.route_state_cache: Dict[str, StateCacheItem] = {}
 
     async def pre_execute(self, consumer_message_mapping: dict, **kwargs):
@@ -131,7 +130,8 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         # fetch the state object from the cache or backend
         # state = await self.fetch_state(state_id=state_id)
         # TODO temporary fix until we get this state synchronizer shit sorted out
-        # TODO definitely do not want to be doing this outside the other path of persistence (but since the other path uses the route id and not the state id, well you get the point.....)
+        # TODO definitely do not want to be doing this outside the other path of persistence
+        #  (but since the other path uses the route id and not the state id, well you get the point.....)
         state = storage.load_state(state_id=state_id, load_data=True)
 
         # persist the query state list

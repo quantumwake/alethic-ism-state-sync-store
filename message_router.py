@@ -1,8 +1,8 @@
 # pulsar messaging provider is used, the routes are defined in the routing.yaml
 import os
 
-from core.messaging.base_message_router import Router
-from core.messaging.nats_message_provider import NATSMessageProvider
+from ismcore.messaging.base_message_router import Router
+from ismcore.messaging.nats_message_provider import NATSMessageProvider
 
 ROUTING_FILE = os.environ.get("ROUTING_FILE", '.routing.yaml')
 
