@@ -3,7 +3,7 @@
 # Function to print usage
 print_usage() {
   echo "Usage: $0 [-i image]"
-  echo "  -i image              Docker krasaee/alethic-ism-api:latest"
+  echo "  -i image              Docker <namespace>/<app-name>:<version>"
 }
 
 # Parse command line arguments
