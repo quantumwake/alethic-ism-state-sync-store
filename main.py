@@ -8,11 +8,13 @@ from ismcore.messaging.base_message_route_model import BaseRoute
 from ismcore.messaging.nats_message_provider import NATSMessageProvider
 from ismcore.model.base_model import Processor, ProcessorProvider, ProcessorState, ProcessorStateDirection
 from ismcore.model.processor_state import State
+from ismcore.utils.ism_logger import ism_logger
 from ismdb.postgres_storage_class import PostgresDatabaseStorage
 
 from environment import DATABASE_URL, MSG_URL, MSG_TOPIC, MSG_TOPIC_SUBSCRIPTION, MSG_MANAGE_TOPIC
-from logger import logging
 from message_router import monitor_route, state_sync_route, state_router_route
+
+logging = ism_logger(__name__)
 
 # flag that determines whether to shut down the consumers
 RUNNING = True
