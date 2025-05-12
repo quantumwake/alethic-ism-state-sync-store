@@ -97,5 +97,10 @@ The codebase includes several TODOs related to performance improvements:
 - Consideration for distributed state storage to improve scalability
 
 ## License
+Alethic ISM is under a DUAL licensing model, please refer to [LICENSE](LICENSE).
 
-This project is licensed under the GNU Affero General Public License v3.0 - see the LICENSE file for details.
+**AGPL v3**
+Intended for academic, research, and nonprofit institutional use. As long as all derivative works are also open-sourced under the same license, you are free to use, modify, and distribute the software.
+
+**Commercial License**
+Intended for commercial use, including production deployments and proprietary applications. This license allows for closed-source derivative works and commercial distribution. Please contact us for more information.
