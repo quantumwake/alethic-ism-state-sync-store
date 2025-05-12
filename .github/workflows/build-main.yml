@@ -19,7 +19,7 @@ jobs:
         uses: quantumwake/alethic-ism-github-actions@main
         with:
           # Required inputs
-          image-name: 'krasaee/alethic-state-sync-store'
+          image-name: 'krasaee/alethic-ism-state-sync-store'
           registry-username: ${{ vars.DOCKERHUB_USERNAME }}
           registry-token: ${{ secrets.DOCKERHUB_TOKEN }}
           registry: 'docker.io'
