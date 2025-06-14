@@ -215,12 +215,13 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         return query_states, state
 
     async def save_state(self, state: State, query_states: [], scope_variable_mapping: dict = {}):
-        for query_state_entry in query_states:
-            query_states = state.apply_query_state(
-                query_state=query_state_entry,
+        # overwrite each slot in the original list
+        for idx, entry in enumerate(query_states):
+            query_states[idx] = state.apply_query_state(
+                query_state=entry,
                 scope_variable_mappings={
                     **scope_variable_mapping,
-                    "data": query_state_entry,
+                    "data": entry,
                 }
             )
 
