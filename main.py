@@ -226,13 +226,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
             )
 
         logging.info(f'persisting state: {state.id} to storage {state.config.storage_class} with count: {state.count}')
-
-        # create any new columns and save all the data # TODO definitely needs some caching/incremental updates
         state = storage.save_state(state=state)
-
-        # we explicitly update the state count TODO need to figure this out with cache
-        state = storage.update_state_count(state=state)
-
         return query_states, state
 
 
