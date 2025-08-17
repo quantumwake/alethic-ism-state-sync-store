@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List
 
 from ismcore.messaging.base_message_provider import BaseMessageConsumer
@@ -29,20 +29,34 @@ storage = PostgresDatabaseStorage(
 # define the consumer subsystem to use, in this case we are using pulsar but we can also use kafka
 message_provider = NATSMessageProvider()
 
+class StateCacheRouteItem:
 
-class StateCacheItem:
-
-    def __init__(self,
-                 state: State,
-                 processor: Processor,
-                 provider: ProcessorProvider,
-                 processor_state: ProcessorState):
-
-        self.state: State = state
+    def __init__(self, route_id: str, processor: Processor, provider: ProcessorProvider, processor_state: ProcessorState):
+        self.route_id: str = route_id
         self.processor: Processor = processor
         self.provider: ProcessorProvider = provider
         self.processor_state: ProcessorState = processor_state
-        self.last_update = datetime.utcnow()
+        self.processor: Optional[Processor] = None  # Will be set later when fetched from storage
+
+class StateCacheItem:
+
+    def __init__(self, state: State):
+        self.state: State = state
+        self.routes = {}  # Cache by route_id
+        self.last_update = datetime.now(tz=timezone.utc)
+
+    def add_route(self, route_id: str,
+                  provider: ProcessorProvider,
+                  processor_state: ProcessorState,
+                  processor: Processor = None) -> None:
+
+        self.routes[route_id] = StateCacheRouteItem(
+            route_id=route_id,
+            processor=processor,
+            provider=provider,
+            processor_state=processor_state)
+
+        self.last_update = datetime.now(tz=timezone.utc)
 
 
 # set up state data synchronization consumer class
@@ -68,10 +82,10 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
             state_cache_item = self.state_cache[state_id]   # fetch the cached item
 
             # calculate the time since last updating the cache element
-            elapsed_last_access = datetime.utcnow() - state_cache_item.last_update
-            if elapsed_last_access.seconds < 30:     # if not 30 seconds has elapsed, then use the cache item
+            elapsed_last_access = datetime.now(tz=timezone.utc) - state_cache_item.last_update
+            if elapsed_last_access.total_seconds() < 30:     # if not 30 seconds has elapsed, then use the cache item
                 state = state_cache_item.state
-                state_cache_item.last_update = datetime.utcnow()    # update the cache state
+                state_cache_item.last_update = datetime.now(tz=timezone.utc)    # update the cache state
 
         # otherwise the state is null and we need to reload it and cache it again
         if not state:
@@ -146,6 +160,16 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
 
         return query_states, state
 
+
+    def load_route_cache_item(self, processor_state: ProcessorState, cache_item: StateCacheItem):
+        route_id = processor_state.id
+        if route_id in cache_item.routes:
+            return
+
+        processor = storage.fetch_processor(processor_id=processor_state.processor_id)
+        provider = storage.fetch_processor_provider(id=processor.provider_id)
+        cache_item.add_route(route_id, processor=processor, provider=provider, processor_state=processor_state)
+
     async def execute_route(self, message: dict):
 
         if 'route_id' not in message:
@@ -174,34 +198,29 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         
         load = True
         cache_item = None
-        
+
         # Check the cache using state_id instead of route_id
         if state_id in self.state_cache:
             cache_item = self.state_cache[state_id]
 
+            # load the route information into the cache item if not already present
+
             # calculate the time since last updating the cache element
-            elapsed_last_access = datetime.utcnow() - cache_item.last_update
+            elapsed_last_access = datetime.now(tz=timezone.utc) - cache_item.last_update
             if elapsed_last_access.total_seconds() >= 10:  # if cache expired
                 self.state_cache.pop(state_id)
                 cache_item = None
             else:
+                self.load_route_cache_item(processor_state, cache_item)
                 load = False
 
         if load:
             # fetch the state object from the backend
             state = storage.load_state(state_id=state_id, load_data=True)
 
-            processor = storage.fetch_processor(processor_id=processor_state.processor_id)
-            provider = storage.fetch_processor_provider(id=processor.provider_id)
-
             # Create cache item and cache by state_id
-            cache_item = StateCacheItem(
-                state=state,
-                processor=processor,
-                provider=provider,
-                processor_state=processor_state
-            )
-
+            cache_item = StateCacheItem(state=state)
+            self.load_route_cache_item(processor_state, cache_item)
             self.state_cache[state_id] = cache_item
 
         # persist the query state list
@@ -213,9 +232,9 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
             query_states=query_states,
             scope_variable_mapping={
                 "route_id": route_id,
-                "provider": cache_item.provider,
-                "processor": cache_item.processor,
-                "processor_state": processor_state
+                "provider": cache_item.routes[route_id].provider,
+                "processor": cache_item.routes[route_id].processor,
+                "processor_state": cache_item.routes[route_id].processor_state
             }
         )
         cache_item.state = state
