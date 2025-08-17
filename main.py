@@ -50,7 +50,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
 
     def __init__(self, route: BaseRoute, monitor_route: BaseRoute = None, **kwargs):
         super().__init__(route=route, monitor_route=monitor_route)
-        self.route_state_cache: Dict[str, StateCacheItem] = {}
+        self.state_cache: Dict[str, StateCacheItem] = {}  # Cache by state_id instead of route_id
 
     async def pre_execute(self, consumer_message_mapping: dict, **kwargs):
         pass    # do not send any data synchronization updates, for now
@@ -60,7 +60,8 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
 
     # # @memoize
     async def fetch_state2(self, state_id: str) -> Optional[State]:
-
+        # NOTE: This method is currently unused but kept for potential future use
+        
         state = None    # start with state is not cached yet
 
         if state_id in self.state_cache:    # if the state is already cached
@@ -75,8 +76,9 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         # otherwise the state is null and we need to reload it and cache it again
         if not state:
             state = storage.load_state(state_id=state_id)
-            self.state_cache[state_id] = StateCacheItem(state)
-
+            # Note: This would need processor and provider info to create a proper StateCacheItem
+            # For now, this method is not used in the main flow
+            
         # return the final state cached or just renewed/loaded
         return state
 
@@ -148,6 +150,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
 
         if 'route_id' not in message:
             raise ValueError(f'unable to identity state id from consumed message')
+
         route_id = message['route_id']
 
         # TODO this is a total hack, the better approach would be to allow each state to have its own datastore which can be done, thus removing the burden of states being centralized
@@ -155,38 +158,43 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         # TODO final the state should probably not use a complex data structure but be as simple as dumping a json row (aka finalized query state rather than persisting each column and value per row, although this is kind of like a key which we can use a distributed hash for I suppose? but not as efficient as I would expect)
         # TODO to say the least, this whole fucking thing around `synchronizing` state persistence needs to be looked at BADLY and quickly, as it won't scale
 
+        # First, fetch processor state route information to get the state_id
+        processor_state = storage.fetch_processor_state_route(route_id=route_id)
+        
+        # ensure that processor state route is correct
+        if not processor_state or len(processor_state) != 1:
+            raise ValueError(
+                f'unable to identity route id {route_id}, '
+                f'expected 1 result, received {processor_state}'
+            )
+        processor_state = processor_state[0]
+        state_id = processor_state.state_id
+        
         load = True
-        # lets check the cache first
-        if route_id in self.route_state_cache:
-            cache_item = self.route_state_cache[route_id]
+        cache_item = None
+        
+        # Check the cache using state_id instead of route_id
+        if state_id in self.state_cache:
+            cache_item = self.state_cache[state_id]
 
             # calculate the time since last updating the cache element
             elapsed_last_access = datetime.utcnow() - cache_item.last_update
-            if elapsed_last_access.total_seconds() >= 10:  # if not 30 seconds has elapsed, then use the cache item
-                self.route_state_cache.pop(route_id)
+            if elapsed_last_access.total_seconds() >= 10:  # if cache expired
+                self.state_cache.pop(state_id)
                 cache_item = None
             else:
                 load = False
+                # Update the processor_state for this specific route
+                cache_item.processor_state = processor_state
 
         if load:
-            # fetch processor state route information in order to know where we are persisting the data
-            processor_state = storage.fetch_processor_state_route(route_id=route_id)
-
-            # ensure that processor state route is correct
-            if not processor_state or len(processor_state) != 1:
-                raise ValueError(
-                    f'unable to identity route id {route_id}, '
-                    f'expected 1 result, received {processor_state}'
-                )
-            processor_state = processor_state[0]
-
-            # fetch the state object from the cache or backend
-            state = storage.load_state(state_id=processor_state.state_id, load_data=True)
+            # fetch the state object from the backend
+            state = storage.load_state(state_id=state_id, load_data=True)
 
             processor = storage.fetch_processor(processor_id=processor_state.processor_id)
             provider = storage.fetch_processor_provider(id=processor.provider_id)
 
-            # TODO what happens if the routes change we need a way to invalid this, but it won't matter if we refactor and remove the state sync store altogether and replace it with decentralized persitence instead.
+            # Create cache item and cache by state_id
             cache_item = StateCacheItem(
                 state=state,
                 processor=processor,
@@ -194,7 +202,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
                 processor_state=processor_state
             )
 
-            self.route_state_cache[route_id] = cache_item
+            self.state_cache[state_id] = cache_item
 
         # persist the query state list
         query_states = message['query_state']    # likely individual state entries (a list)
