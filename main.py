@@ -167,6 +167,8 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
                 f'unable to identity route id {route_id}, '
                 f'expected 1 result, received {processor_state}'
             )
+
+        ## Unpack the processor state since there should only be one result
         processor_state = processor_state[0]
         state_id = processor_state.state_id
         
@@ -184,8 +186,6 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
                 cache_item = None
             else:
                 load = False
-                # Update the processor_state for this specific route
-                cache_item.processor_state = processor_state
 
         if load:
             # fetch the state object from the backend
@@ -215,7 +215,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
                 "route_id": route_id,
                 "provider": cache_item.provider,
                 "processor": cache_item.processor,
-                "processor_state": cache_item.processor_state
+                "processor_state": processor_state
             }
         )
         cache_item.state = state
