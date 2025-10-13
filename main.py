@@ -11,13 +11,19 @@ from ismcore.model.processor_state import State
 from ismcore.utils.ism_logger import ism_logger
 from ismdb.postgres_storage_class import PostgresDatabaseStorage
 
-from environment import DATABASE_URL, MSG_URL, MSG_TOPIC, MSG_TOPIC_SUBSCRIPTION, MSG_MANAGE_TOPIC
+from environment import DATABASE_URL, MSG_URL, MSG_TOPIC, MSG_TOPIC_SUBSCRIPTION, MSG_MANAGE_TOPIC, USE_LIGHTWEIGHT_MODE
 from message_router import monitor_route, state_sync_route, state_router_route
 
 logging = ism_logger(__name__)
 
 # flag that determines whether to shut down the consumers
 RUNNING = True
+
+# Log the mode we're running in
+if USE_LIGHTWEIGHT_MODE:
+    logging.info("Running in LIGHTWEIGHT mode - memory-efficient incremental updates enabled")
+else:
+    logging.info("Running in STANDARD mode - full state loading enabled")
 # r = redis.Redis(host='localhost', port=6379, db=0)
 
 # catch-all storage class configuration
@@ -132,7 +138,10 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         if message_type == 'query_state_direct':
             query_states, state = await self.execute_direct(message=message)
         elif message_type == 'query_state_route':
-            query_states, state = await self.execute_route(message=message)
+            if USE_LIGHTWEIGHT_MODE:
+                query_states, state = await self.execute_route_lightweight(message=message)
+            else:
+                query_states, state = await self.execute_route(message=message)
         else:
             raise ValueError(f'invalid message type {message_type}')
 
@@ -240,6 +249,54 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         cache_item.state = state
 
         return query_states, state
+
+    async def execute_route_lightweight(self, message: dict):
+        """
+        Memory-efficient version of execute_route that doesn't use caching or load full state data.
+        Passes raw query_states to append_state_data_direct which handles transformations and persistence.
+        """
+        if 'route_id' not in message:
+            raise ValueError(f'unable to identity state id from consumed message')
+
+        route_id = message['route_id']
+
+        # First, fetch processor state route information to get the state_id
+        processor_state = storage.fetch_processor_state_route(route_id=route_id)
+
+        # ensure that processor state route is correct
+        if not processor_state or len(processor_state) != 1:
+            raise ValueError(
+                f'unable to identity route id {route_id}, '
+                f'expected 1 result, received {processor_state}'
+            )
+
+        ## Unpack the processor state since there should only be one result
+        processor_state = processor_state[0]
+        state_id = processor_state.state_id
+
+        # Fetch route-related info for scope variable mappings
+        processor = storage.fetch_processor(processor_id=processor_state.processor_id)
+        provider = storage.fetch_processor_provider(id=processor.provider_id)
+
+        # LIGHTWEIGHT: Pass raw query_states directly to storage
+        # append_state_data_direct will handle: metadata loading, transformations, and direct DB writes
+        query_states = message['query_state']
+
+        logging.info(f'persisting {len(query_states)} rows to state: {state_id} (lightweight mode)')
+        updated_state = storage.append_state_data_direct(
+            state_id=state_id,
+            query_states=query_states,
+            scope_variable_mappings={
+                "route_id": route_id,
+                "provider": provider,
+                "processor": processor,
+                "processor_state": processor_state,
+                "data": None,  # Will be set per entry in append_state_data_direct
+            }
+        )
+
+        # Return the query_states (now transformed inside append_state_data_direct)
+        return query_states, updated_state
 
     async def save_state(self, state: State, query_states: [], scope_variable_mapping: dict = {}):
         # overwrite each slot in the original list

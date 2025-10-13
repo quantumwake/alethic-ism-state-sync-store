@@ -15,6 +15,9 @@ MSG_TOPIC_SUBSCRIPTION = os.environ.get("MSG_TOPIC_SUBSCRIPTION", "ism_state_syn
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres1@localhost:5432/postgres")
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 
+# Memory optimization - use lightweight mode for incremental updates
+USE_LIGHTWEIGHT_MODE = os.environ.get("STATE_SYNC_LIGHTWEIGHT", "true").lower() == "true"
+
 # Message Routing File (
 #   The responsibility of this state sync store is to take inputs and
 #   store them into a consistent state storage class. After, the intent is
