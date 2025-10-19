@@ -1,9 +1,7 @@
 import os
 import dotenv
-from logger import logging
 
 dotenv.load_dotenv()
-logging.info('starting up pulsar consumer for state sync store')
 
 # pulsar/kafka related
 MSG_URL = os.environ.get("MSG_URL", "pulsar://localhost:6650")
@@ -13,7 +11,6 @@ MSG_TOPIC_SUBSCRIPTION = os.environ.get("MSG_TOPIC_SUBSCRIPTION", "ism_state_syn
 
 # database related
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres1@localhost:5432/postgres")
-LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 
 # Memory optimization - use lightweight mode for incremental updates
 USE_LIGHTWEIGHT_MODE = os.environ.get("STATE_SYNC_LIGHTWEIGHT", "true").lower() == "true"

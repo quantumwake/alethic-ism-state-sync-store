@@ -14,25 +14,21 @@ from ismdb.postgres_storage_class import PostgresDatabaseStorage
 from environment import DATABASE_URL, MSG_URL, MSG_TOPIC, MSG_TOPIC_SUBSCRIPTION, MSG_MANAGE_TOPIC, USE_LIGHTWEIGHT_MODE
 from message_router import monitor_route, state_sync_route, state_router_route
 
-logging = ism_logger(__name__)
+logger = ism_logger(__name__)
 
 # flag that determines whether to shut down the consumers
 RUNNING = True
 
 # Log the mode we're running in
 if USE_LIGHTWEIGHT_MODE:
-    logging.info("Running in LIGHTWEIGHT mode - memory-efficient incremental updates enabled")
+    logger.info("Running in LIGHTWEIGHT mode - memory-efficient incremental updates enabled")
 else:
-    logging.info("Running in STANDARD mode - full state loading enabled")
-# r = redis.Redis(host='localhost', port=6379, db=0)
+    logger.info("Running in STANDARD mode - full state loading enabled")
 
 # catch-all storage class configuration
-storage = PostgresDatabaseStorage(
-    database_url=DATABASE_URL,
-    incremental=True
-)
+storage = PostgresDatabaseStorage(database_url=DATABASE_URL, incremental=True)
 
-# define the consumer subsystem to use, in this case we are using pulsar but we can also use kafka
+# set up message provider for routing messages between state machines and processors in the system
 message_provider = NATSMessageProvider()
 
 class StateCacheRouteItem:
@@ -282,7 +278,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         # append_state_data_direct will handle: metadata loading, transformations, and direct DB writes
         query_states = message['query_state']
 
-        logging.info(f'persisting {len(query_states)} rows to state: {state_id} (lightweight mode)')
+        logger.info(f'persisting {len(query_states)} rows to state: {state_id} (lightweight mode)')
         updated_state = storage.append_state_data_direct(
             state_id=state_id,
             query_states=query_states,
@@ -309,7 +305,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
                 }
             )
 
-        logging.info(f'persisting state: {state.id} to storage {state.config.storage_class} with count: {state.count}')
+        logger.info(f'persisting state: {state.id} to storage {state.config.storage_class} with count: {state.count}')
         state = storage.save_state(state=state)
         return query_states, state
 
@@ -327,7 +323,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
 
         state_id = state.id
         if not state.config.flag_auto_route_output_state_after_save:
-            logging.debug(f'flag auto route query states forward is disabled, for state id {state_id}')
+            logger.debug(f'flag auto route query states forward is disabled, for state id {state_id}')
             return
 
         # the current state id is an INPUT into other processors (if any)
@@ -338,7 +334,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
 
         # ensure there are forwarding hop(s)
         if not forward_routes:
-            logging.debug(f'no forward routes found for state id: {state_id}')
+            logger.debug(f'no forward routes found for state id: {state_id}')
             return
 
         # iterate and send query states to next hops

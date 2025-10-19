@@ -44,5 +44,12 @@ spec:
                 name: alethic-ism-state-sync-store-secret
                 key: DATABASE_URL
 
+          # Logging level configuration
+          - name: LOG_LEVEL
+            valueFrom:
+              secretKeyRef:
+                name: alethic-ism-state-sync-store-secret
+                key: LOG_LEVEL
+
       imagePullSecrets:
       - name: regcred
