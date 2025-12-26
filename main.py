@@ -294,8 +294,10 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         # Return the query_states (now transformed inside append_state_data_direct)
         return query_states, updated_state
 
-    async def save_state(self, state: State, query_states: [], scope_variable_mapping: dict = {}):
+    async def save_state(self, state: State, query_states: [], scope_variable_mapping=None):
         # overwrite each slot in the original list
+        if scope_variable_mapping is None:
+            scope_variable_mapping = {}
         for idx, entry in enumerate(query_states):
             query_states[idx] = state.apply_query_state(
                 query_state=entry,
