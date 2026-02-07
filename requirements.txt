@@ -1,5 +1,5 @@
-alethic-ism-core==1.0.45
-alethic-ism-db==1.0.42
+alethic-ism-core==1.0.46
+alethic-ism-db==1.0.43
 python-dotenv
 restrictedpython
 psycopg2-binary
