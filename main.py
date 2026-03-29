@@ -6,12 +6,13 @@ from typing import Optional, Dict, List
 from ismcore.messaging.base_message_provider import BaseMessageConsumer
 from ismcore.messaging.base_message_route_model import BaseRoute
 from ismcore.messaging.nats_message_provider import NATSMessageProvider
+from ismcore.messaging.nats_message_route import NATSRoute
 from ismcore.model.base_model import Processor, ProcessorProvider, ProcessorState, ProcessorStateDirection
 from ismcore.model.processor_state import State, RoutingMode, RoutingDispatch
 from ismcore.utils.ism_logger import ism_logger
 from ismdb.postgres_storage_class import PostgresDatabaseStorage
 
-from environment import DATABASE_URL, MSG_URL, MSG_TOPIC, MSG_TOPIC_SUBSCRIPTION, MSG_MANAGE_TOPIC, USE_LIGHTWEIGHT_MODE, CONSUMER_BATCH_SIZE
+from environment import DATABASE_URL, MSG_URL, MSG_TOPIC, MSG_TOPIC_SUBSCRIPTION, MSG_MANAGE_TOPIC, USE_LIGHTWEIGHT_MODE
 from message_router import monitor_route, state_sync_route, state_router_route
 from ismcore.messaging.nats_message_route_batch import NATSRouteBatch
 
@@ -65,7 +66,7 @@ class StateCacheItem:
 # set up state data synchronization consumer class
 class MessagingStateSyncConsumer(BaseMessageConsumer):
 
-    def __init__(self, route: BaseRoute, monitor_route: BaseRoute = None, **kwargs):
+    def __init__(self, route: NATSRoute, monitor_route: BaseRoute = None, **kwargs):
         super().__init__(route=route, monitor_route=monitor_route)
         self.state_cache: Dict[str, StateCacheItem] = {}  # Cache by state_id instead of route_id
 
@@ -371,11 +372,10 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
     async def start_consumer(self):
         if USE_LIGHTWEIGHT_MODE:
             logger.info(
-                f"switching to batch consumer with batch_size={CONSUMER_BATCH_SIZE}"
+                f"switching to batch consumer with batch_size={self.route.batch_size}"
             )
             self.route = NATSRouteBatch.from_route(
                 route=self.route,
-                batch_size=CONSUMER_BATCH_SIZE,
                 batch_callback=self.on_receive_batch,
                 group_by_fn=lambda msg: msg.get('route_id')
             )
