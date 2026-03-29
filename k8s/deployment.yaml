@@ -51,5 +51,12 @@ spec:
                 name: alethic-ism-state-sync-store-secret
                 key: LOG_LEVEL
 
+          # Batch consumer configuration
+          - name: CONSUMER_BATCH_SIZE
+            valueFrom:
+              secretKeyRef:
+                name: alethic-ism-state-sync-store-secret
+                key: CONSUMER_BATCH_SIZE
+
       imagePullSecrets:
       - name: regcred

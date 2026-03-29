@@ -7,12 +7,13 @@ from ismcore.messaging.base_message_provider import BaseMessageConsumer
 from ismcore.messaging.base_message_route_model import BaseRoute
 from ismcore.messaging.nats_message_provider import NATSMessageProvider
 from ismcore.model.base_model import Processor, ProcessorProvider, ProcessorState, ProcessorStateDirection
-from ismcore.model.processor_state import State
+from ismcore.model.processor_state import State, RoutingMode, RoutingDispatch
 from ismcore.utils.ism_logger import ism_logger
 from ismdb.postgres_storage_class import PostgresDatabaseStorage
 
-from environment import DATABASE_URL, MSG_URL, MSG_TOPIC, MSG_TOPIC_SUBSCRIPTION, MSG_MANAGE_TOPIC, USE_LIGHTWEIGHT_MODE
+from environment import DATABASE_URL, MSG_URL, MSG_TOPIC, MSG_TOPIC_SUBSCRIPTION, MSG_MANAGE_TOPIC, USE_LIGHTWEIGHT_MODE, CONSUMER_BATCH_SIZE
 from message_router import monitor_route, state_sync_route, state_router_route
+from ismcore.messaging.nats_message_route_batch import NATSRouteBatch
 
 logger = ism_logger(__name__)
 
@@ -312,20 +313,25 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         return query_states, state
 
 
+    def _should_route_after_save(self, state: State) -> bool:
+        """Check whether this state should auto-route after persistence."""
+        props = state.typed_properties
+        if props.routing and props.routing.mode:
+            return RoutingMode(props.routing.mode) == RoutingMode.AFTER_SAVE
+        return False
+
+    def _should_dispatch_batch(self, state: State) -> bool:
+        """Check whether downstream routing should send the full set as one message."""
+        props = state.typed_properties
+        if props.routing and props.routing.dispatch:
+            return RoutingDispatch(props.routing.dispatch) == RoutingDispatch.BATCH
+        return False
+
     async def route_query_states(self, state: State, query_states: List[Dict]):
 
-        # TODO this code apparently routes data to the next hop, however, this logic is also happening using the
-        #  State Propagation Provider; in the processor directly. It might be required to have either a separate
-        #  router or simple send it to the state router and let the state router make the deicision as to whether
-        #  forward route this message. Although it does kind of make sense in the state sync, though the routing
-        #  and data persistence should not be dependant. ARGGGG.. I think fine in the processing consumer, such that
-        #  it can be the point where it can go further or not.
-
-        # TODO already split this out to a different flag >> above comment might not be relevant.
-
         state_id = state.id
-        if not state.config.flag_auto_route_output_state_after_save:
-            logger.debug(f'flag auto route query states forward is disabled, for state id {state_id}')
+        if not self._should_route_after_save(state):
+            logger.debug(f'routing after save is disabled for state id {state_id}')
             return
 
         # the current state id is an INPUT into other processors (if any)
@@ -339,14 +345,100 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
             logger.debug(f'no forward routes found for state id: {state_id}')
             return
 
-        # iterate and send query states to next hops
-        [await state_router_route.publish(json.dumps(
-            {
-                "type": "query_state_entry",
-                "route_id": forward_route.id,
-                "query_state": query_states
-            }
-        )) for forward_route in forward_routes]
+        # Determine dispatch mode from the current state's routing properties
+        dispatch_batch = self._should_dispatch_batch(state)
+
+        for forward_route in forward_routes:
+            if dispatch_batch:
+                # send entire query state set as a single message
+                logger.debug(f'forwarding full query state set ({len(query_states)} entries) to route {forward_route.id}')
+                await state_router_route.publish(json.dumps({
+                    "type": "query_state_entry",
+                    "route_id": forward_route.id,
+                    "query_state": query_states
+                }))
+            else:
+                # send each query state entry individually
+                logger.debug(f'forwarding {len(query_states)} individual query state entries to route {forward_route.id}')
+                for qs_entry in query_states:
+                    await state_router_route.publish(json.dumps({
+                        "type": "query_state_entry",
+                        "route_id": forward_route.id,
+                        "query_state": [qs_entry]
+                    }))
+
+
+    async def start_consumer(self):
+        if USE_LIGHTWEIGHT_MODE:
+            logger.info(
+                f"switching to batch consumer with batch_size={CONSUMER_BATCH_SIZE}"
+            )
+            self.route = NATSRouteBatch.from_route(
+                route=self.route,
+                batch_size=CONSUMER_BATCH_SIZE,
+                batch_callback=self.on_receive_batch,
+                group_by_fn=lambda msg: msg.get('route_id')
+            )
+        await super().start_consumer()
+
+    async def on_receive_batch(self, route, group_key: str, messages: list):
+        """
+        Handle a batch of messages grouped by route_id.
+        Resolves route info once, flattens query_states, and persists in a single DB call.
+        """
+        route_id = group_key
+
+        # Flatten all query_states from messages in this group
+        all_query_states = []
+        for msg in messages:
+            qs = msg.get('query_state', [])
+            if isinstance(qs, list):
+                all_query_states.extend(qs)
+            else:
+                all_query_states.append(qs)
+
+        if not all_query_states:
+            logger.warning(f"no query_states in batch for route_id: {route_id}")
+            return
+
+        try:
+            # Resolve route info once per batch
+            processor_state = storage.fetch_processor_state_route(route_id=route_id)
+            if not processor_state or len(processor_state) != 1:
+                raise ValueError(
+                    f'unable to identity route id {route_id}, '
+                    f'expected 1 result, received {processor_state}'
+                )
+            processor_state = processor_state[0]
+            state_id = processor_state.state_id
+
+            processor = storage.fetch_processor(processor_id=processor_state.processor_id)
+            provider = storage.fetch_processor_provider(id=processor.provider_id)
+
+            logger.info(
+                f'persisting batch of {len(all_query_states)} rows '
+                f'to state: {state_id} (route: {route_id})'
+            )
+
+            updated_state = storage.append_state_data_direct(
+                state_id=state_id,
+                query_states=all_query_states,
+                scope_variable_mappings={
+                    "route_id": route_id,
+                    "provider": provider,
+                    "processor": processor,
+                    "processor_state": processor_state,
+                    "data": None,
+                }
+            )
+
+            # Downstream routing
+            if updated_state:
+                await self.route_query_states(
+                    state=updated_state, query_states=all_query_states
+                )
+        except Exception as e:
+            logger.error(f"error processing batch for route_id {route_id}: {e}")
 
 
 if __name__ == '__main__':

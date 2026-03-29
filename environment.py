@@ -24,3 +24,6 @@ USE_LIGHTWEIGHT_MODE = os.environ.get("STATE_SYNC_LIGHTWEIGHT", "true").lower() 
 # )
 ROUTING_FILE = os.environ.get("ROUTING_FILE", '.routing.yaml')
 
+# Batch consumer settings
+CONSUMER_BATCH_SIZE = int(os.environ.get("CONSUMER_BATCH_SIZE", "100"))
+
