@@ -100,23 +100,6 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         # return the final state cached or just renewed/loaded
         return state
 
-    def remove_complex_values(self, query_state):
-        if not query_state:
-            return query_state
-
-        def pop(e):
-            history = e['__history__'] if '__history__' in e else None
-            if history:
-                e.pop('__history__')
-
-        if isinstance(query_state, list):
-            for entry in query_state:
-                pop(e=entry)
-        else:
-            pop(e=query_state)
-
-        return query_state
-
     async def execute(self, message: dict):
         if 'type' not in message:
             raise ValueError(f'unable to identify state type, must be one of: '
@@ -377,16 +360,37 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
             self.route = NATSRouteBatch.from_route(
                 route=self.route,
                 batch_callback=self.on_receive_batch,
-                group_by_fn=lambda msg: msg.get('route_id')
+                group_by_fn=self._batch_group_key
             )
         await super().start_consumer()
 
-    async def on_receive_batch(self, route, group_key: str, messages: list):
+    @staticmethod
+    def _batch_group_key(msg: dict):
         """
-        Handle a batch of messages grouped by route_id.
-        Resolves route info once, flattens query_states, and persists in a single DB call.
+        Derive a batching key from a message, mirroring execute()'s type dispatch.
+
+        Returns a (kind, identifier) tuple so on_receive_batch can resolve the
+        state_id appropriately. Returns None for messages that can't be grouped
+        (causing the batch route to skip them).
         """
-        route_id = group_key
+        msg_type = msg.get('type')
+        if msg_type == 'query_state_direct':
+            state_id = msg.get('state_id')
+            return ('direct', state_id) if state_id else None
+        if msg_type == 'query_state_route':
+            route_id = msg.get('route_id')
+            return ('route', route_id) if route_id else None
+        return None
+
+    async def on_receive_batch(self, route, group_key, messages: list):
+        """
+        Handle a batch of messages grouped by (kind, identifier).
+
+        For 'route' batches the route info is resolved once to obtain the
+        state_id; for 'direct' batches the state_id is carried on the message.
+        query_states are flattened and persisted in a single DB call.
+        """
+        kind, identifier = group_key
 
         # Flatten all query_states from messages in this group
         all_query_states = []
@@ -398,32 +402,43 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
                 all_query_states.append(qs)
 
         if not all_query_states:
-            logger.warning(f"no query_states in batch for route_id: {route_id}")
+            logger.warning(f"no query_states in batch for {kind}: {identifier}")
             return
 
         try:
-            # Resolve route info once per batch
-            processor_state = storage.fetch_processor_state_route(route_id=route_id)
-            if not processor_state or len(processor_state) != 1:
-                raise ValueError(
-                    f'unable to identity route id {route_id}, '
-                    f'expected 1 result, received {processor_state}'
-                )
-            processor_state = processor_state[0]
-            state_id = processor_state.state_id
+            route_id = None
+            processor = None
+            provider = None
+            processor_state = None
 
-            processor = storage.fetch_processor(processor_id=processor_state.processor_id)
-            provider = storage.fetch_processor_provider(id=processor.provider_id)
+            if kind == 'route':
+                # Resolve route info once per batch
+                route_id = identifier
+                processor_state = storage.fetch_processor_state_route(route_id=route_id)
+                if not processor_state or len(processor_state) != 1:
+                    raise ValueError(
+                        f'unable to identity route id {route_id}, '
+                        f'expected 1 result, received {processor_state}'
+                    )
+                processor_state = processor_state[0]
+                state_id = processor_state.state_id
+
+                processor = storage.fetch_processor(processor_id=processor_state.processor_id)
+                provider = storage.fetch_processor_provider(id=processor.provider_id)
+            else:
+                # direct: state_id is carried directly on the message
+                state_id = identifier
 
             logger.info(
                 f'persisting batch of {len(all_query_states)} rows '
-                f'to state: {state_id} (route: {route_id})'
+                f'to state: {state_id} ({kind}: {identifier})'
             )
 
             updated_state = storage.append_state_data_direct(
                 state_id=state_id,
                 query_states=all_query_states,
                 scope_variable_mappings={
+                    "state_id": state_id,
                     "route_id": route_id,
                     "provider": provider,
                     "processor": processor,
@@ -438,7 +453,7 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
                     state=updated_state, query_states=all_query_states
                 )
         except Exception as e:
-            logger.error(f"error processing batch for route_id {route_id}: {e}")
+            logger.error(f"error processing batch for {kind} {identifier}: {e}")
 
 
 if __name__ == '__main__':
