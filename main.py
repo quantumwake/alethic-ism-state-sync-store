@@ -280,17 +280,26 @@ class MessagingStateSyncConsumer(BaseMessageConsumer):
         return query_states, updated_state
 
     async def save_state(self, state: State, query_states: [], scope_variable_mapping=None):
-        # overwrite each slot in the original list
         if scope_variable_mapping is None:
             scope_variable_mapping = {}
-        for idx, entry in enumerate(query_states):
-            query_states[idx] = state.apply_query_state(
+
+        # Rebuild the list rather than overwriting slots in place: a single entry may
+        # fan out into multiple rows (apply_query_state returns a list) when the
+        # persistence mode is INDIVIDUAL_ROWS; otherwise it returns a single dict.
+        applied_query_states = []
+        for entry in query_states:
+            applied = state.apply_query_state(
                 query_state=entry,
                 scope_variable_mappings={
                     **scope_variable_mapping,
                     "data": entry,
                 }
             )
+            if isinstance(applied, list):
+                applied_query_states.extend(applied)
+            else:
+                applied_query_states.append(applied)
+        query_states = applied_query_states
 
         logger.info(f'persisting state: {state.id} to storage {state.config.storage_class} with count: {state.count}')
         state = storage.save_state(state=state)
